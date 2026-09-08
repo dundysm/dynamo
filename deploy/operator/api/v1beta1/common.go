@@ -134,9 +134,9 @@ type ComponentRoleSpec struct {
 	// +optional
 	ProviderOverride *ProviderOverride `json:"providerOverride,omitempty"`
 
-	// podTemplate defines the Pod configuration for this role. Admission permits
-	// it only when the enclosing component type explicitly supports role-specific
-	// Pod templates. No component type supports it in this release.
+	// podTemplate defines the complete Pod configuration for this role. When
+	// any role supplies a podTemplate, the component-level podTemplate must be
+	// absent and every required Pod-producing role must supply one.
 	// +optional
 	PodTemplate *corev1.PodTemplateSpec `json:"podTemplate,omitempty"`
 }
@@ -269,6 +269,14 @@ type GroveSpec struct {
 // graduate out of this block (and become first-class fields on the shared
 // spec) once their API is considered stable.
 type ExperimentalSpec struct {
+	// flagsInjection controls backend-specific multinode launch injection.
+	// Automatic preserves the operator-generated launch commands and topology
+	// flags. Manual preserves the authored role commands and arguments while
+	// retaining operator-owned Pod wiring.
+	// +optional
+	// +kubebuilder:default=Automatic
+	FlagsInjection FlagsInjectionMode `json:"flagsInjection,omitempty"`
+
 	// gpuMemoryService configures the GPU Memory Service (GMS). When set, GPU
 	// access for GMS clients is managed via DRA.
 	// +optional
@@ -296,6 +304,17 @@ type ExperimentalSpec struct {
 	Checkpoint *ComponentCheckpointConfig `json:"checkpoint,omitempty"`
 }
 
+// FlagsInjectionMode controls automatic backend-specific multinode launch injection.
+// +kubebuilder:validation:Enum=Automatic;Manual
+type FlagsInjectionMode string
+
+const (
+	// FlagsInjectionModeAutomatic keeps backend-specific multinode launch injection enabled.
+	FlagsInjectionModeAutomatic FlagsInjectionMode = "Automatic"
+	// FlagsInjectionModeManual disables backend-specific multinode launch injection.
+	FlagsInjectionModeManual FlagsInjectionMode = "Manual"
+)
+
 // GPUMemoryServiceSpec configures the GPU Memory Service (GMS) for a
 // worker component. The operator injects GMS wiring and replaces the main
 // container's GPU resources with a DRA `ResourceClaim` for shared GPU access.
@@ -318,7 +337,7 @@ type GPUMemoryServiceSpec struct {
 	// extraClientContainers lists additional user-declared containers that should
 	// be wired as GMS clients in service pods. SnapshotJob capture Pod clients are
 	// declared under checkpoint.job.gmsClientContainers. Every name must match a container
-	// in the enclosing component's podTemplate.spec.containers.
+	// in the enclosing component's podTemplate, or in every role podTemplate when those are used.
 	// +optional
 	// +listType=set
 	// +kubebuilder:validation:items:MinLength=1
@@ -806,6 +825,25 @@ type ComponentReplicaStatus struct {
 	// active revision namespace until cutover completes.
 	// +optional
 	RuntimeNamespace string `json:"runtimeNamespace,omitempty"`
+
+	// servedModelName is the effective primary model identity exposed by this
+	// component's serving role. During rolling updates, worker status keeps the
+	// old active revision value until cutover completes.
+	// +optional
+	ServedModelName string `json:"servedModelName,omitempty"`
+
+	// runtimeComponentName is an explicit Dynamo runtime component identity
+	// resolved from the serving role's endpoint override. Omission means the
+	// backend default applies. During rolling updates, worker status keeps the
+	// old active revision value until cutover completes.
+	// +optional
+	RuntimeComponentName string `json:"runtimeComponentName,omitempty"`
+
+	// gpuPowerLimitWatts is the effective per-GPU power limit propagated to the
+	// component's Pods. Omission means no power limit is configured.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	GPUPowerLimitWatts *int64 `json:"gpuPowerLimitWatts,omitempty"`
 
 	// gpusPerEngine is the number of GPUs assigned to one inference engine in a
 	// component replica, across all of its nodes. Independent auxiliary GPU
